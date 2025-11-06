@@ -4,6 +4,7 @@
 export PYTHONPATH="${PYTHONPATH}:/home/ubuntu/poria-cvpr-2026/ob1/vlprm/"
 
 # source /home/ubuntu/poria-cvpr-2026/ob1/vlprm/eval/.venv/bin/activate
+conda activate mmr_reasoning
 echo "Python path after activation: $(which python)"
 echo "Python version: $(python --version)"
 
