@@ -425,7 +425,7 @@ def main():
     parser.add_argument(
         "--data_dir", 
         type=str, 
-        default="/data/projects/71001002/ob1/vlprm/eval/eval_datasets", 
+        default="/home/ubuntu/poria-cvpr-2026/ob1/vlprm/eval/eval_datasets/", 
         help="The absolute path of MMMU dataset directory"
     )
     # parser.add_argument(
