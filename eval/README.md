@@ -13,6 +13,14 @@ uv pip sync requirements.txt --extra-index-url https://download.pytorch.org/whl/
 uv add flash-attn --no-build-isolation
 ```
 
+- Alternatively, do the following for conda installation
+```bash
+conda create -n eval python=3.12
+conda activate eval
+pip install -r frozen_eval_requirements.txt
+pip install flash-attn --no-build-isolation
+```
+
 ## Testing Environment
 - To test if the environment is set up correctly, you can run the following command:
 ```bash
