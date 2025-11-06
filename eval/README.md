@@ -18,7 +18,7 @@ uv add flash-attn --no-build-isolation
 conda create -n eval python=3.12
 conda activate eval
 pip install -r frozen_eval_requirements.txt
-pip install flash-attn --no-build-isolation
+pip install "flash-attn<=2.8" --no-build-isolation
 ```
 
 ## Testing Environment
