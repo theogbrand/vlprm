@@ -4,15 +4,7 @@
     - ```curl -LsSf https://astral.sh/uv/install.sh | sh```
 
 # Set Up Virtual Environment
-- We recommend you first try syncing the dependencies using our pyproject.toml file.
-```bash
-module load CUDA/12.6.0
-uv venv -p 3.12 --seed
-source .venv/bin/activate
-uv pip sync
-```
-
-- If the above fails, you can try syncing the dependencies using our requirements.txt file. You will need to install flash-attn manually after syncing.
+- We recommend the following process to sync dependencies using our requirements.txt file. You will need to install flash-attn manually after syncing.
 ```bash
 module load CUDA/12.6.0
 uv venv -p 3.12 --seed
