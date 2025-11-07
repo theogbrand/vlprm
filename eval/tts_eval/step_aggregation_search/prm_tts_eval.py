@@ -1,4 +1,7 @@
 import os
+import sys
+# Add project root to path for imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 import numpy as np
 import json
 import base64
@@ -6,11 +9,12 @@ import math
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModel, Qwen2_5_VLForConditionalGeneration, AutoProcessor
 import torch
+import torch.nn.functional as F
 from PIL import Image
 from io import BytesIO
-from eval.tts_eval.utils.utils import log_info
+# from eval.tts_eval.utils.utils import log_info
 import argparse
-from eval.tts_eval.reward_guided_search.prompts import PRM_SYSTEM_PROMPT_NORMAL_TOK_V2
+# from eval.tts_eval.reward_guided_search.prompts import PRM_SYSTEM_PROMPT_NORMAL_TOK_V2
 from qwen_vl_utils import process_vision_info
 from typing import List
 from eval.tts_eval.reward_guided_search.utils.utils import prepare_question_array_with_base64_image_strings
@@ -356,7 +360,7 @@ class InternVLVisualPRM:
 
 class QwenVLVisualPRM:
     def __init__(self, model_path, model_init_kwargs=None):
-        log_info(f"Loading model from {model_path}")
+        print(f"Loading model from {model_path}")
 
         if model_init_kwargs is None:
             model_init_kwargs = {
@@ -373,15 +377,15 @@ class QwenVLVisualPRM:
             model_path
         )
         self.processor = AutoProcessor.from_pretrained(model_path, min_pixels=256 * 28 * 28, max_pixels=1280 * 28 * 28)
-        log_info("VisualPRM loaded successfully")
+        print("VisualPRM loaded successfully")
         self.pos_token_id = self.tokenizer.encode(POSITIVE_TOKEN)[0]
         self.neg_token_id = self.tokenizer.encode(NEGATIVE_TOKEN)[0]
-        self.system_prompt = PRM_SYSTEM_PROMPT_NORMAL_TOK_V2 
+        self.system_prompt = PRM_SYSTEM_PROMPT_NORMAL_TOK 
 
     def inference_single(
         self, sample_input_messages_array_including_images_interweaved, logging=False
     ):
-        # log_info(
+        # print(
         #     f"Starting inference with input: {sample_input_messages_array_including_images_interweaved}"
         # )
 
@@ -390,19 +394,19 @@ class QwenVLVisualPRM:
             tokenize=False,
             add_generation_prompt=True,
         )
-        log_info(f"Reward model Text: {text}")
+        print(f"Reward model Text: {text}")
 
-        # log_info("*" * 100)
-        # log_info(sample_input_messages_array_including_images_interweaved)
-        # log_info("*" * 100)
+        # print("*" * 100)
+        # print(sample_input_messages_array_including_images_interweaved)
+        # print("*" * 100)
         # exit()
         
         image_inputs, video_inputs = process_vision_info(
             sample_input_messages_array_including_images_interweaved
         )
 
-        log_info(f"CHECK: Len of Image inputs output from process_vision_info (should match len of base64 image list): {len(image_inputs)}")
-        log_info(
+        print(f"CHECK: Len of Image inputs output from process_vision_info (should match len of base64 image list): {len(image_inputs)}")
+        print(
             f"DEBUG: Image should be PIL Image as input to processor: {[type(img) if img else 'None' for img in image_inputs]}"
         )
 
@@ -415,55 +419,55 @@ class QwenVLVisualPRM:
             ).to(self.model.device)        
 
 
-        log_info(f"Tokenized message_ids shape: {message_ids['input_ids'].shape}")
+        print(f"Tokenized message_ids shape: {message_ids['input_ids'].shape}")
 
         with torch.no_grad():
             outputs = self.model(
                 **message_ids
             )  # [batch_size, seq_len, vocab_size] - double check size
 
-        log_info(f"Model outputs logits shape: {outputs.logits.shape}")
-        log_info(f"Model outputs logits device: {outputs.logits.device}")
+        print(f"Model outputs logits shape: {outputs.logits.shape}")
+        print(f"Model outputs logits device: {outputs.logits.device}")
 
         allowed_token_ids = torch.tensor([self.pos_token_id, self.neg_token_id], device=outputs.logits.device)  # shape: (2,)
-        log_info(
+        print(
             f"Allowed token IDs: {allowed_token_ids} (+ token: {self.pos_token_id}, - token: {self.neg_token_id})"
         )
 
         last_position_logits = outputs.logits[:, -1, :]  # [batch_size, vocab_size]
-        log_info(f"Last position logits shape: {last_position_logits.shape}")
-        log_info(
+        print(f"Last position logits shape: {last_position_logits.shape}")
+        print(
             f"Last position logits for + and - tokens: {last_position_logits[:, allowed_token_ids]}"
         )
 
         masked_logits = last_position_logits[:, allowed_token_ids]  # [batch_size, 2]
-        log_info(f"Masked logits shape: {masked_logits.shape}")
-        log_info(f"Masked logits values: {masked_logits}")
+        print(f"Masked logits shape: {masked_logits.shape}")
+        print(f"Masked logits values: {masked_logits}")
 
         probs_pos_neg = F.softmax(masked_logits, dim=-1)
-        log_info(f"Probabilities [pos, neg]: {probs_pos_neg}")
+        print(f"Probabilities [pos, neg]: {probs_pos_neg}")
 
         predicted_indices = masked_logits.argmax(dim=-1)
         predicted_tokens = allowed_token_ids[predicted_indices]
-        log_info(f"Predicted indices: {predicted_indices}")
-        log_info(f"Predicted token IDs: {predicted_tokens}")
+        print(f"Predicted indices: {predicted_indices}")
+        print(f"Predicted token IDs: {predicted_tokens}")
 
         decoded_tokens = [self.tokenizer.decode([int(token_id)], skip_special_tokens=False) for token_id in predicted_tokens]
-        log_info(f"Decoded predicted tokens: {decoded_tokens}")
+        print(f"Decoded predicted tokens: {decoded_tokens}")
 
         if logging:
-            log_info(f"Decoded Labels (either + or -): {decoded_tokens}")
+            print(f"Decoded Labels (either + or -): {decoded_tokens}")
 
         positive_prob = probs_pos_neg[0][0].cpu().item()
         negative_prob = probs_pos_neg[0][1].cpu().item()
         
         if NEGATIVE_TOKEN in decoded_tokens:
-            log_info("Negative prediction detected")
+            print("Negative prediction detected")
             reward_score = -1
         else:
             input_length = message_ids['input_ids'].shape[1]  # Total input tokens
             reward_score = (positive_prob ** 0.3) / (input_length ** 0.6)
-            log_info(f"Normalized reward score: {reward_score}")
+            print(f"Normalized reward score: {reward_score}")
 
         result = {
             'prediction': 'negative' if NEGATIVE_TOKEN in decoded_tokens else 'positive',
@@ -472,7 +476,7 @@ class QwenVLVisualPRM:
             'reward_score': reward_score
         }
         
-        log_info(f"Returning result: {result}")
+        print(f"Returning result: {result}")
         return result
 
     def get_reward(
@@ -497,7 +501,7 @@ class QwenVLVisualPRM:
 
 
         if len(previous_steps) > 0:
-            log_info(f"Previous steps > 0: {previous_steps}")
+            print(f"Previous steps > 0: {previous_steps}")
             for i, step in enumerate(previous_steps):
                 if i == 0: # the first step requires to include question and set up solution process
                     standard_first_user_message = (
@@ -512,7 +516,7 @@ class QwenVLVisualPRM:
                         )
                     )
 
-                    log_info(f"in VisualPRM length of standard_first_question_corresponding_image_data_base64_list: {len(standard_first_question_corresponding_image_data_base64_list)}")
+                    print(f"in VisualPRM length of standard_first_question_corresponding_image_data_base64_list: {len(standard_first_question_corresponding_image_data_base64_list)}")
 
                     messages_array_to_generate_reward += (
                         standard_first_question_in_messages_array_format
@@ -542,7 +546,7 @@ class QwenVLVisualPRM:
                 {"role": "user", "content": [{"type": "text", "text": now_step}]}
             ) # set up for reward model to generate reward for the current step
                  
-            # log_info(
+            # print(
             #     f"messages_array_to_generate_reward with multiple steps after step 1: {messages_array_to_generate_reward}"
             # )
         else:
@@ -558,18 +562,83 @@ class QwenVLVisualPRM:
                 )
             )
 
-            log_info(f"in VisualPRM length of standard_first_question_corresponding_image_data_base64_list: {len(standard_first_question_corresponding_image_data_base64_list)}")
+            print(f"in VisualPRM length of standard_first_question_corresponding_image_data_base64_list: {len(standard_first_question_corresponding_image_data_base64_list)}")
 
             messages_array_to_generate_reward += (
                 standard_first_question_in_messages_array_format
             )
             
 
-        # log_info(f"Reward model messages array: {messages_array_to_generate_reward}")
-        log_info(f"Base64 image list length: {len(base64_image_list)}")
+        # print(f"Reward model messages array: {messages_array_to_generate_reward}")
+        print(f"Base64 image list length: {len(base64_image_list)}")
         result = self.inference_single(messages_array_to_generate_reward)
 
         return result
+
+    def get_agg_reward(self, image_strs, question, steps):
+        """
+        Get aggregated reward score for a list of reasoning steps.
+        
+        Args:
+            image_strs: base64 encoded image string(s)
+            question: the question prompt
+            steps: List[str] - list of solution steps to evaluate
+            
+        Returns:
+            float: average reward score across all steps
+        """
+        # Handle image_strs as string or list
+        if isinstance(image_strs, str):
+            base64_image_list = [image_strs]
+        else:
+            base64_image_list = image_strs
+        
+        step_scores = []
+        steps_with_score = []
+        
+        for step_idx, step in enumerate(steps):
+            # Build messages incrementally
+            messages_array = [
+                {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]}
+            ]
+            
+            # First step includes question
+            if step_idx == 0:
+                first_user_message = f"### Question:\n{question}\n\n### Solution Process:\n{step}"
+                # Use prepare_question_array_with_base64_image_strings helper
+                question_messages, _ = prepare_question_array_with_base64_image_strings(
+                    first_user_message, base64_image_list, interleave_image_tokens=False
+                )
+                messages_array += question_messages
+            else:
+                # Add all previous steps with + tokens
+                first_user_message = f"### Question:\n{question}\n\n### Solution Process:\n{steps[0]}"
+                question_messages, _ = prepare_question_array_with_base64_image_strings(
+                    first_user_message, base64_image_list, interleave_image_tokens=False
+                )
+                messages_array += question_messages
+                messages_array.append({"role": "assistant", "content": [{"type": "text", "text": POSITIVE_TOKEN}]})
+                
+                # Add intermediate steps
+                for prev_idx in range(1, step_idx):
+                    messages_array.append({"role": "user", "content": [{"type": "text", "text": steps[prev_idx]}]})
+                    messages_array.append({"role": "assistant", "content": [{"type": "text", "text": POSITIVE_TOKEN}]})
+                
+                # Add current step
+                messages_array.append({"role": "user", "content": [{"type": "text", "text": step}]})
+            
+            # Get reward for this accumulated state
+            result = self.inference_single(messages_array, logging=False)
+            reward_score = result['reward_score']
+            step_scores.append(reward_score)
+            steps_with_score.append({'step': step, 'score': reward_score})
+        
+        # Return average
+        avg_score = sum(step_scores) / len(step_scores)
+        print(f"steps_with_score: {steps_with_score}")
+        print(f"Average score: {avg_score}")
+        
+        return avg_score
 
 def main():
     parser = argparse.ArgumentParser(
@@ -650,8 +719,13 @@ def main():
     data = load_json(args.data_path)
     # print(data[0])
     # data = data[:2] # dev mode
-
-    model = VisualPRM(args)
+    if "Qwen-VL-PRM" in args.model_path:
+        model = QwenVLVisualPRM(args.model_path)
+    elif "InternVL" in args.model_path:
+        model = InternVLVisualPRM(args)
+    else:
+        raise ValueError(f"Unsupported model path: {args.model_path}")
+    # model = VisualPRM(args)
 
     # file_name = os.path.basename(args.data_path)
     file_name = args.data_path
