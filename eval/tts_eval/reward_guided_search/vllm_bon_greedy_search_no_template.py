@@ -147,7 +147,7 @@ def get_next_step(
     # VLLM sampling parameters
     if "qwen" in policy_model_name.lower():
         sampling_params = SamplingParams(
-            n=16,
+            n=8,
             top_p=0.8,
             top_k=20,
             temperature=0.7,
@@ -158,7 +158,7 @@ def get_next_step(
         )
     elif "gemma" in policy_model_name.lower(): # https://docs.unsloth.ai/basics/gemma-3-how-to-run-and-fine-tune
         sampling_params = SamplingParams(
-            n=16,
+            n=8,
             top_p=0.95,
             top_k=64,
             temperature=0.7,
