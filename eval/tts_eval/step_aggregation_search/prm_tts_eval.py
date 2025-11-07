@@ -4,15 +4,16 @@ import json
 import base64
 import math
 from tqdm import tqdm
-from transformers import AutoTokenizer, AutoModel, AutoProcessor, AutoModelForImageTextToText
+from transformers import AutoTokenizer, AutoModel, Qwen2_5_VLForConditionalGeneration, AutoProcessor
 import torch
-# from openai import OpenAI
 from PIL import Image
 from io import BytesIO
-
+from eval.tts_eval.utils.utils import log_info
 import argparse
-import re
-# from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score
+from eval.tts_eval.reward_guided_search.prompts import PRM_SYSTEM_PROMPT_NORMAL_TOK_V2
+from qwen_vl_utils import process_vision_info
+from typing import List
+from eval.tts_eval.reward_guided_search.utils.utils import prepare_question_array_with_base64_image_strings
 
 # VLLM imports
 from vllm import LLM, SamplingParams
@@ -24,6 +25,9 @@ from torchvision.transforms.functional import InterpolationMode
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
+
+POSITIVE_TOKEN = "+"
+NEGATIVE_TOKEN = "-"
 
 def build_transform(input_size):
     MEAN, STD = IMAGENET_MEAN, IMAGENET_STD
@@ -196,7 +200,7 @@ def save_json(data, filepath, indent=2):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=indent)
 
-class VisualPRM:
+class InternVLVisualPRM:
     def __init__(self, args):
         self.pos_token = "+"
         self.neg_token = "-"
@@ -349,6 +353,223 @@ class VisualPRM:
             print(f"Average score: {total_score / len(steps)}")
 
             return total_score / len(steps)
+
+class QwenVLVisualPRM:
+    def __init__(self, model_path, model_init_kwargs=None):
+        log_info(f"Loading model from {model_path}")
+
+        if model_init_kwargs is None:
+            model_init_kwargs = {
+                "torch_dtype": torch.bfloat16,
+                "attn_implementation": "flash_attention_2",
+                "device_map": "auto",
+            }
+        self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            model_path, **model_init_kwargs
+        )
+        self.model.eval()
+
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_path
+        )
+        self.processor = AutoProcessor.from_pretrained(model_path, min_pixels=256 * 28 * 28, max_pixels=1280 * 28 * 28)
+        log_info("VisualPRM loaded successfully")
+        self.pos_token_id = self.tokenizer.encode(POSITIVE_TOKEN)[0]
+        self.neg_token_id = self.tokenizer.encode(NEGATIVE_TOKEN)[0]
+        self.system_prompt = PRM_SYSTEM_PROMPT_NORMAL_TOK_V2 
+
+    def inference_single(
+        self, sample_input_messages_array_including_images_interweaved, logging=False
+    ):
+        # log_info(
+        #     f"Starting inference with input: {sample_input_messages_array_including_images_interweaved}"
+        # )
+
+        text = self.processor.apply_chat_template(
+            sample_input_messages_array_including_images_interweaved,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        log_info(f"Reward model Text: {text}")
+
+        # log_info("*" * 100)
+        # log_info(sample_input_messages_array_including_images_interweaved)
+        # log_info("*" * 100)
+        # exit()
+        
+        image_inputs, video_inputs = process_vision_info(
+            sample_input_messages_array_including_images_interweaved
+        )
+
+        log_info(f"CHECK: Len of Image inputs output from process_vision_info (should match len of base64 image list): {len(image_inputs)}")
+        log_info(
+            f"DEBUG: Image should be PIL Image as input to processor: {[type(img) if img else 'None' for img in image_inputs]}"
+        )
+
+        message_ids = self.processor(
+                text=[text],
+                images=image_inputs,
+                videos=video_inputs,
+                padding=True,
+                return_tensors="pt",
+            ).to(self.model.device)        
+
+
+        log_info(f"Tokenized message_ids shape: {message_ids['input_ids'].shape}")
+
+        with torch.no_grad():
+            outputs = self.model(
+                **message_ids
+            )  # [batch_size, seq_len, vocab_size] - double check size
+
+        log_info(f"Model outputs logits shape: {outputs.logits.shape}")
+        log_info(f"Model outputs logits device: {outputs.logits.device}")
+
+        allowed_token_ids = torch.tensor([self.pos_token_id, self.neg_token_id], device=outputs.logits.device)  # shape: (2,)
+        log_info(
+            f"Allowed token IDs: {allowed_token_ids} (+ token: {self.pos_token_id}, - token: {self.neg_token_id})"
+        )
+
+        last_position_logits = outputs.logits[:, -1, :]  # [batch_size, vocab_size]
+        log_info(f"Last position logits shape: {last_position_logits.shape}")
+        log_info(
+            f"Last position logits for + and - tokens: {last_position_logits[:, allowed_token_ids]}"
+        )
+
+        masked_logits = last_position_logits[:, allowed_token_ids]  # [batch_size, 2]
+        log_info(f"Masked logits shape: {masked_logits.shape}")
+        log_info(f"Masked logits values: {masked_logits}")
+
+        probs_pos_neg = F.softmax(masked_logits, dim=-1)
+        log_info(f"Probabilities [pos, neg]: {probs_pos_neg}")
+
+        predicted_indices = masked_logits.argmax(dim=-1)
+        predicted_tokens = allowed_token_ids[predicted_indices]
+        log_info(f"Predicted indices: {predicted_indices}")
+        log_info(f"Predicted token IDs: {predicted_tokens}")
+
+        decoded_tokens = [self.tokenizer.decode([int(token_id)], skip_special_tokens=False) for token_id in predicted_tokens]
+        log_info(f"Decoded predicted tokens: {decoded_tokens}")
+
+        if logging:
+            log_info(f"Decoded Labels (either + or -): {decoded_tokens}")
+
+        positive_prob = probs_pos_neg[0][0].cpu().item()
+        negative_prob = probs_pos_neg[0][1].cpu().item()
+        
+        if NEGATIVE_TOKEN in decoded_tokens:
+            log_info("Negative prediction detected")
+            reward_score = -1
+        else:
+            input_length = message_ids['input_ids'].shape[1]  # Total input tokens
+            reward_score = (positive_prob ** 0.3) / (input_length ** 0.6)
+            log_info(f"Normalized reward score: {reward_score}")
+
+        result = {
+            'prediction': 'negative' if NEGATIVE_TOKEN in decoded_tokens else 'positive',
+            'positive_prob': positive_prob,
+            'negative_prob': negative_prob,
+            'reward_score': reward_score
+        }
+        
+        log_info(f"Returning result: {result}")
+        return result
+
+    def get_reward(
+        self,
+        question: str,
+        previous_steps: List[str],
+        now_step: str,
+        base64_image_list: List[str],
+        interleave_image_tokens: bool = False,
+    ) -> float:
+        """
+        Get reward score for a reasoning step given the question, previous steps, and current step.
+        """
+
+        messages_array_to_generate_reward = [
+            # {"role": "system", "content": self.system_prompt}
+            {
+                "role": "system",
+                "content": [{"type": "text", "text": self.system_prompt}],
+            }
+        ]  # mirrors training process
+
+
+        if len(previous_steps) > 0:
+            log_info(f"Previous steps > 0: {previous_steps}")
+            for i, step in enumerate(previous_steps):
+                if i == 0: # the first step requires to include question and set up solution process
+                    standard_first_user_message = (
+                        f"### Question:\n{question}\n\n### Solution Process:\n{step}"
+                    )
+
+                    standard_first_question_in_messages_array_format, standard_first_question_corresponding_image_data_base64_list = (
+                        prepare_question_array_with_base64_image_strings(
+                            standard_first_user_message,
+                            base64_image_list,
+                            interleave_image_tokens=interleave_image_tokens,
+                        )
+                    )
+
+                    log_info(f"in VisualPRM length of standard_first_question_corresponding_image_data_base64_list: {len(standard_first_question_corresponding_image_data_base64_list)}")
+
+                    messages_array_to_generate_reward += (
+                        standard_first_question_in_messages_array_format
+                    )
+                    messages_array_to_generate_reward.append(
+                        # {"role": "assistant", "content": POSITIVE_TOKEN}
+                        {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": POSITIVE_TOKEN}],
+                        }
+                    )
+                else: # subsequent steps after first step, we can just paste the previous step
+                    messages_array_to_generate_reward.append(
+                        # {"role": "user", "content": step}
+                        {"role": "user", "content": [{"type": "text", "text": step}]}
+                    ) 
+                    messages_array_to_generate_reward.append(
+                        # {"role": "assistant", "content": POSITIVE_TOKEN}
+                        {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": POSITIVE_TOKEN}],
+                        }
+                    )
+            
+            messages_array_to_generate_reward.append(
+                # {"role": "user", "content": now_step}
+                {"role": "user", "content": [{"type": "text", "text": now_step}]}
+            ) # set up for reward model to generate reward for the current step
+                 
+            # log_info(
+            #     f"messages_array_to_generate_reward with multiple steps after step 1: {messages_array_to_generate_reward}"
+            # )
+        else:
+            standard_first_user_message = (
+            f"### Question:\n{question}\n\n### Solution Process:\n{now_step}"
+        ) # reached only first step
+
+            standard_first_question_in_messages_array_format, standard_first_question_corresponding_image_data_base64_list = (
+                prepare_question_array_with_base64_image_strings(
+                    standard_first_user_message,
+                    base64_image_list,
+                    interleave_image_tokens=interleave_image_tokens,
+                )
+            )
+
+            log_info(f"in VisualPRM length of standard_first_question_corresponding_image_data_base64_list: {len(standard_first_question_corresponding_image_data_base64_list)}")
+
+            messages_array_to_generate_reward += (
+                standard_first_question_in_messages_array_format
+            )
+            
+
+        # log_info(f"Reward model messages array: {messages_array_to_generate_reward}")
+        log_info(f"Base64 image list length: {len(base64_image_list)}")
+        result = self.inference_single(messages_array_to_generate_reward)
+
+        return result
 
 def main():
     parser = argparse.ArgumentParser(
