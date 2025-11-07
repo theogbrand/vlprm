@@ -11,6 +11,7 @@ OUTPUT_DATA_DIR="/home/ubuntu/poria-cvpr-2026/ob1/vlprm/eval/tts_eval/step_aggre
 INPUT_JSON_DATA_PATH="/home/ubuntu/poria-cvpr-2026/Tej/mmr-eval/traces_data/g12b_policy_step/q3b_prm/Q3B_mc0_sr_mc0_full_bs2_gs4_lr1e-5_VF_0827_1452_puzzleVQA_1K_subset_result-merged-0-1000-20250902_232205.json"
 
 CHECKPOINT_BASE_PATH="/home/ubuntu/poria-cvpr-2026/ob1/CVPR_PRM/src/training/trained_models"
+# MODEL_PATH="${CHECKPOINT_BASE_PATH}/ob11_Qwen-VL-PRM-7B_grpo_listwise_ce_20251106_223500"
 MODEL_PATH="${CHECKPOINT_BASE_PATH}/ob11_Qwen-VL-PRM-7B_grpo_listwise_ce_20251106_215426"
 # MODEL_PATH="ob11/Qwen-VL-PRM-3B"
 # MODEL_PATH="OpenGVLab/VisualPRM-8B-v1_1"
@@ -70,14 +71,14 @@ if [[ -n "$model_datetime" ]]; then
     reward_model_prefix="${reward_model_prefix}_${model_datetime}"
 fi
 
-RUN_SETTING="step_agg"
-# RUN_SETTING="non_greedy"
+# RUN_SETTING="step_agg"
+RUN_SETTING="non_greedy"
 
 base_job_name_prefix="PRM_${reward_model_prefix}"
 
 mkdir -p logs/inference_logs/${POLICY_MODEL}/prm_${reward_model_prefix}
 
-CUDA_VISIBLE_DEVICES=4 python prm_tts_eval.py \
+CUDA_VISIBLE_DEVICES=7 python prm_tts_eval.py \
     --model-path $MODEL_PATH \
     --data-path ${INPUT_JSON_DATA_PATH} \
     --output-path ${OUTPUT_DATA_DIR}/${POLICY_MODEL}/prm_${reward_model_prefix}/${dataset_shorthand}_${RUN_SETTING}-${current_datetime}.json \
