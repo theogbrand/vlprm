@@ -8,3 +8,5 @@ eval/tts_eval/reward_guided_search/utils/logs/*
 eval/tts_eval/reward_guided_search/logs/*
 eval/tts_eval/reward_guided_search/outputs/*
 eval/.venv
+eval/tts_eval/step_aggregation_search/logs/*
+eval/tts_eval/step_aggregation_search/outputs/*

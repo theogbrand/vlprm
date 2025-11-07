@@ -5,11 +5,16 @@
 
 datetime=$(date +"%Y%m%d-%H%M%S")
 
+# Add the parent directory to PYTHONPATH so imports work correctly
+export PYTHONPATH="${PYTHONPATH}:/home/ubuntu/poria-cvpr-2026/ob1/vlprm/"
+
 OUTPUT_DATA_DIR="/home/ubuntu/poria-cvpr-2026/ob1/vlprm/eval/tts_eval/step_aggregation_search/outputs"
 # BASE_DATA_DIR="/home/ubuntu/poria-cvpr-2026/ob1/vlprm/eval/tts_eval/reward_guided_search/VisualPRM_relabelling"
 INPUT_JSON_DATA_PATH="/home/ubuntu/poria-cvpr-2026/Tej/mmr-eval/traces_data/g12b_policy_step/q3b_prm/Q3B_mc0_sr_mc0_full_bs2_gs4_lr1e-5_VF_0827_1452_AlgoPuzzleVQA_900_subset_result-merged-0-900-20250903_145022.json"
 
-MODEL_PATH="ob11/Qwen-VL-PRM-3B"
+CHECKPOINT_BASE_PATH="/home/ubuntu/poria-cvpr-2026/ob1/CVPR_PRM/src/training/trained_models"
+MODEL_PATH="${CHECKPOINT_BASE_PATH}/ob11_Qwen-VL-PRM-7B_grpo_listwise_ce_20251106_223500"
+# MODEL_PATH="ob11/Qwen-VL-PRM-3B"
 # MODEL_PATH="OpenGVLab/VisualPRM-8B-v1_1"
 
 if [[ $MODEL_PATH =~ [V]isualPRM-8B ]]; then
@@ -31,7 +36,7 @@ base_job_name_prefix="PRM_${model_prefix}"
 
 mkdir -p logs/inference_logs/single_runs/prm_${model_prefix}
 
-CUDA_VISIBLE_DEVICES=0 python prm_tts_eval.py \
+CUDA_VISIBLE_DEVICES=1 python prm_tts_eval.py \
     --model-path $MODEL_PATH \
     --data-path ${INPUT_JSON_DATA_PATH} \
     --output-path ${OUTPUT_DATA_DIR}/single_runs/prm_${model_prefix}/mathvision_${RUN_SETTING}-${datetime}.json \

@@ -1,7 +1,4 @@
 import os
-import sys
-# Add project root to path for imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 import numpy as np
 import json
 import base64
