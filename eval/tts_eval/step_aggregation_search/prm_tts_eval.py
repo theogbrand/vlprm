@@ -825,18 +825,23 @@ def main():
             "best_reward": max_score
         }
 
-    # Generate output filename based on input data file
-    input_filename = os.path.basename(args.data_path)
-    
-    # Include run datetime if provided for easy matching with logs
-    datetime_suffix = f"_{args.run_datetime}" if args.run_datetime else ""
-    
-    if input_filename.endswith('.json'):
-        output_filename = input_filename.replace('.json', f'_prm_{args.tts_type}_results{datetime_suffix}.json')
+    # Check if output_path is already a file path or a directory
+    if args.output_path.endswith('.json'):
+        # output_path is already a full file path, use it directly
+        output_filepath = args.output_path
     else:
-        output_filename = f"{input_filename}_prm_{args.tts_type}_results{datetime_suffix}.json"
-    
-    output_filepath = os.path.join(args.output_path, output_filename)
+        # output_path is a directory, generate output filename based on input data file
+        input_filename = os.path.basename(args.data_path)
+        
+        # Include run datetime if provided for easy matching with logs
+        datetime_suffix = f"_{args.run_datetime}" if args.run_datetime else ""
+        
+        if input_filename.endswith('.json'):
+            output_filename = input_filename.replace('.json', f'_prm_{args.tts_type}_results{datetime_suffix}.json')
+        else:
+            output_filename = f"{input_filename}_prm_{args.tts_type}_results{datetime_suffix}.json"
+        
+        output_filepath = os.path.join(args.output_path, output_filename)
     print(f"Saving results to: {output_filepath}")
     try:
         save_json(data, output_filepath)
